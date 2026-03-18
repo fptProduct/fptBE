@@ -33,18 +33,13 @@ const productSchema = new mongoose.Schema(
     ceremonyTypes: [
       {
         type: String,
-        enum: [
-          "OPENINGCEREMONY",   // Cúng khai trương
-          "DEATHANNIVERSARY",  // Cúng giỗ
-          "HOUSEWARMING",      // Cúng nhập trạch
-          "YEAREND",           // Cúng tất niên
-        ],
+        trim: true,
       },
     ],
     packageType: {
       type: String,
-      enum: ["STANDARD", "PREMIUM", "CUSTOM"],
       required: true,
+      trim: true,
     },
     isActive: {
       type: Boolean,
