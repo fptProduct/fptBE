@@ -5,12 +5,12 @@ const User = require("../models/User");
 // Register
 exports.register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const { name, email, phone, password } = req.body;
 
-    if (!name || !email || !password) {
+    if (!name || !email || !phone || !password) {
       return res
         .status(400)
-        .json({ message: "Name, email and password are required" });
+        .json({ message: "Name, email, phone and password are required" });
     }
 
     const existingUser = await User.findOne({ email });
@@ -23,6 +23,7 @@ exports.register = async (req, res) => {
     const user = await User.create({
       name,
       email,
+      phone,
       password: hashedPassword,
     });
 
@@ -62,12 +63,8 @@ exports.login = async (req, res) => {
     );
 
     return res.json({
+      message: "Login successful",
       token,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-      },
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -81,7 +78,7 @@ exports.getMe = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    const user = await User.findById(req.user.id).select("name email");
+    const user = await User.findById(req.user.id).select("name email phone image");
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -90,6 +87,71 @@ exports.getMe = async (req, res) => {
       id: user._id,
       name: user.name,
       email: user.email,
+      phone: user.phone,
+      image: user.image,
+    });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// Update current logged-in user profile
+exports.updateProfile = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const { name, email, phone, image } = req.body;
+    const updateData = {};
+
+    if (name !== undefined) {
+      if (!name) return res.status(400).json({ message: "Name cannot be empty" });
+      updateData.name = name;
+    }
+
+    if (email !== undefined) {
+      if (!email) return res.status(400).json({ message: "Email cannot be empty" });
+      const existingUser = await User.findOne({ email, _id: { $ne: req.user.id } });
+      if (existingUser) {
+        return res.status(400).json({ message: "Email đã tồn tại" });
+      }
+      updateData.email = email;
+    }
+
+    if (phone !== undefined) {
+      if (!phone) return res.status(400).json({ message: "Phone cannot be empty" });
+      updateData.phone = phone;
+    }
+
+    if (image !== undefined) {
+      updateData.image = image;
+    }
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({
+        message: "At least one field is required: name, email, phone, image",
+      });
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(req.user.id, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("name email phone image");
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      message: "Profile updated successfully",
+      user: {
+        id: updatedUser._id,
+        name: updatedUser.name,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        image: updatedUser.image,
+      },
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
