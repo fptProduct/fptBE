@@ -3,7 +3,9 @@ const Product = require("../models/Product");
 // Create new product
 exports.createProduct = async (req, res) => {
   try {
-    const product = await Product.create(req.body);
+    const payload = { ...req.body };
+    delete payload.type;
+    const product = await Product.create({ ...payload, type: "product" });
     return res.status(201).json(product);
   } catch (error) {
     return res.status(400).json({ message: error.message });
@@ -62,9 +64,11 @@ exports.getProductById = async (req, res) => {
 // Update product
 exports.updateProduct = async (req, res) => {
   try {
+    const payload = { ...req.body };
+    delete payload.type;
     const product = await Product.findByIdAndUpdate(
       req.params.id,
-      req.body,
+      payload,
       {
         new: true,
         runValidators: true,

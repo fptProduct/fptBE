@@ -17,6 +17,7 @@ async function toBatchComboResponse(combos) {
   }
   return combos.map((combo) => ({
     id: combo._id,
+    type: combo.type ?? "combo",
     name: combo.name,
     price: combo.price,
     product: (combo.product || []).map((p) => ({
@@ -67,11 +68,12 @@ const buildComboProductsFromIds = async (productInput = []) => {
 exports.createCombo = async (req, res) => {
   try {
     const payload = { ...req.body };
+    delete payload.type;
     if (payload.product !== undefined) {
       payload.product = await buildComboProductsFromIds(payload.product);
     }
 
-    const combo = await Combo.create(payload);
+    const combo = await Combo.create({ ...payload, type: "combo" });
     return res.status(201).json(await toComboResponse(combo));
   } catch (error) {
     return res.status(400).json({ message: error.message });
@@ -117,6 +119,7 @@ exports.getComboById = async (req, res) => {
 exports.updateCombo = async (req, res) => {
   try {
     const payload = { ...req.body };
+    delete payload.type;
     if (payload.product !== undefined) {
       payload.product = await buildComboProductsFromIds(payload.product);
     }

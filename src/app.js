@@ -9,6 +9,8 @@ const categoryRoutes = require("./routes/categoryRoutes");
 const orderRoutes = require("./routes/orderRoutes");
 const uploadRoutes = require("./routes/uploadRoutes");
 const comboRoutes = require("./routes/comboRoutes");
+const cartRoutes = require("./routes/cartRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
 const seedDefaultCategories = require("./utils/categorySeeder");
 
 const app = express();
@@ -46,5 +48,7 @@ app.use("/api/categories", categoryRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/uploads", uploadRoutes);
 app.use("/api/combos", comboRoutes);
+app.use("/api/cart", cartRoutes);
+app.use("/api/payment", paymentRoutes);
 
 
