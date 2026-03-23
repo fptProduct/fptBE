@@ -18,6 +18,11 @@ const comboProductSchema = new mongoose.Schema(
 
 const comboSchema = new mongoose.Schema(
   {
+    type: {
+      type: String,
+      enum: ["combo"],
+      default: "combo",
+    },
     name: {
       type: String,
       required: true,
@@ -37,5 +42,12 @@ const comboSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+comboSchema.set("toJSON", {
+  transform(_doc, ret) {
+    if (ret.type == null) ret.type = "combo";
+    return ret;
+  },
+});
 
 module.exports = mongoose.model("Combo", comboSchema);

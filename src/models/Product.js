@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const productSchema = new mongoose.Schema(
   {
+    type: {
+      type: String,
+      enum: ["product"],
+      default: "product",
+    },
     name: {
       type: String,
       required: true,
@@ -50,6 +55,13 @@ const productSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+productSchema.set("toJSON", {
+  transform(_doc, ret) {
+    if (ret.type == null) ret.type = "product";
+    return ret;
+  },
+});
 
 module.exports = mongoose.model("Product", productSchema);
 
