@@ -2,6 +2,15 @@ const crypto = require("crypto");
 const axios = require("axios");
 const Cart = require("../models/Cart");
 
+const PayOSModule = require("@payos/node");
+const PayOS = PayOSModule.default || PayOSModule.PayOS || PayOSModule;
+
+const payos = new PayOS({
+  clientId: process.env.PAYOS_CLIENT_ID || "CLIENT_ID",
+  apiKey: process.env.PAYOS_API_KEY || "API_KEY",
+  checksumKey: process.env.PAYOS_CHECKSUM_KEY || "CHECKSUM_KEY",
+});
+
 const DEPOSIT_RATIO = 0.5;
 
 function buildMomoSignature(secretKey, params) {
@@ -243,5 +252,107 @@ exports.createMomoPaymentFromCart = async (req, res) => {
     const msg =
       error.response?.data?.message || error.message || "MoMo request failed";
     return res.status(500).json({ message: msg });
+  }
+};
+
+// ====== PAYOS INTEGRATION ======
+
+exports.createPayOSPayment = async (req, res) => {
+  try {
+    const { amount, description, orderId: clientOrderId } = req.body || {};
+
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ message: "amount is required and must be positive" });
+    }
+
+    // PayOS requires orderCode to be a number. We can generate a random one if not provided.
+    // Ensure it falls within Max int32 limit (2147483647).
+    const randomOrderCode = Number(String(Date.now()).slice(-6) + Math.floor(Math.random() * 1000));
+    const orderCode = clientOrderId ? Number(clientOrderId) : randomOrderCode;
+
+    const requestData = {
+      orderCode,
+      amount: Math.round(Number(amount)),
+      description: description || "Thanh toan don hang",
+      cancelUrl: process.env.PAYOS_CANCEL_URL || "http://localhost:3000/cancel",
+      returnUrl: process.env.PAYOS_RETURN_URL || "http://localhost:3000/success",
+    };
+
+    const paymentLinkRes = await payos.paymentRequests.create(requestData);
+
+    return res.status(201).json({
+      checkoutUrl: paymentLinkRes.checkoutUrl,
+      orderCode: paymentLinkRes.orderCode,
+      paymentLinkId: paymentLinkRes.paymentLinkId,
+    });
+  } catch (error) {
+    console.error("PayOS Create Payment Error:", error);
+    return res.status(500).json({ message: error.message || "Failed to create PayOS payment link" });
+  }
+};
+
+exports.createPayOSPaymentFromCart = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const body = req.body || {};
+    const cart = await Cart.findOne({ userId });
+    const items = cart?.items || [];
+
+    if (!items.length) {
+      return res.status(400).json({ message: "Cart is empty" });
+    }
+
+    const cartTotal = cartTotalPrice(items);
+    if (cartTotal <= 0) {
+      return res.status(400).json({ message: "Cart total is invalid" });
+    }
+
+    const depositAmount = Math.round(cartTotal * DEPOSIT_RATIO);
+    const amountStr = Math.max(1, depositAmount);
+
+    const randomOrderCode = Number(String(Date.now()).slice(-6) + Math.floor(Math.random() * 1000));
+
+    const requestData = {
+      orderCode: randomOrderCode,
+      amount: amountStr,
+      description: body.description || "Dat coc gio hang",
+      cancelUrl: process.env.PAYOS_CANCEL_URL || "http://localhost:3000/cancel",
+      returnUrl: process.env.PAYOS_RETURN_URL || "http://localhost:3000/success",
+    };
+
+    const paymentLinkRes = await payos.paymentRequests.create(requestData);
+
+    return res.status(201).json({
+      checkoutUrl: paymentLinkRes.checkoutUrl,
+      orderCode: paymentLinkRes.orderCode,
+      paymentLinkId: paymentLinkRes.paymentLinkId,
+      cartTotal,
+      depositAmount: amountStr,
+    });
+  } catch (error) {
+    console.error("PayOS Create Cart Payment Error:", error);
+    return res.status(500).json({ message: error.message || "Failed to create PayOS cart payment link" });
+  }
+};
+
+exports.payOSWebhook = async (req, res) => {
+  try {
+    const webhookData = await payos.webhooks.verify(req.body);
+    // webhookData contains orderCode, amount, code, success
+    console.log("PayOS Webhook Data:", webhookData);
+
+    // TODO: Update order status to PAID based on webhookData.orderCode here
+
+    return res.status(200).json({
+      error: 0,
+      message: "Ok",
+      data: webhookData,
+    });
+  } catch (error) {
+    console.error("PayOS Webhook Error:", error);
+    return res.status(400).json({
+      error: -1,
+      message: "Xác thực webhook thất bại",
+    });
   }
 };
