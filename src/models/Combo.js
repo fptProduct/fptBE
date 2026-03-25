@@ -23,6 +23,12 @@ const comboSchema = new mongoose.Schema(
       enum: ["combo"],
       default: "combo",
     },
+    images: [
+      {
+        type: String,
+        trim: true,
+      },
+    ],
     name: {
       type: String,
       required: true,

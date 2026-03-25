@@ -4,6 +4,7 @@ const {
   createMomoPaymentFromCart,
   createPayOSPayment,
   createPayOSPaymentFromCart,
+  createPayOSPaymentFromBooking,
   payOSWebhook,
 } = require("../controllers/patmentController");
 const authMiddleware = require("../middleware/authMiddleware");
@@ -23,6 +24,7 @@ router.post(
   authMiddleware,
   createPayOSPaymentFromCart
 );
+router.post("/payos/create-from-booking", createPayOSPaymentFromBooking);
 router.post("/payos/webhook", payOSWebhook);
 
 module.exports = router;
