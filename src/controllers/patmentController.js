@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const axios = require("axios");
 const Cart = require("../models/Cart");
+const Booking = require("../models/Booking");
+const Product = require("../models/Product");
+const Combo = require("../models/Combo");
 
 const PayOSModule = require("@payos/node");
 const PayOS = PayOSModule.default || PayOSModule.PayOS || PayOSModule;
@@ -39,6 +42,58 @@ function cartLineTotal(item) {
 
 function cartTotalPrice(items) {
   return (items || []).reduce((sum, item) => sum + cartLineTotal(item), 0);
+}
+
+async function getBookingTotalPrice(booking) {
+  if (typeof booking?.totalPrice === "number") {
+    return booking.totalPrice;
+  }
+  const bookingItems = booking?.bookingItems || [];
+  if (!bookingItems.length) return 0;
+
+  const comboIds = bookingItems
+    .filter((i) => i.type === "combo")
+    .map((i) => i.itemId);
+  const productIds = bookingItems
+    .filter((i) => i.type === "product")
+    .map((i) => i.itemId);
+
+  const comboCount = bookingItems.filter((i) => i.type === "combo").length;
+  const productCount = bookingItems.filter((i) => i.type === "product").length;
+
+  const [combos, products] = await Promise.all([
+    Combo.find({ _id: { $in: comboIds } }).select("price"),
+    Product.find({ _id: { $in: productIds }, isActive: true }).select("price"),
+  ]);
+
+  if (combos.length !== comboIds.length) return 0;
+  if (products.length !== productIds.length) return 0;
+
+  const comboTotal = combos.reduce((sum, c) => sum + Number(c.price || 0), 0);
+  const productTotal = products.reduce((sum, p) => sum + Number(p.price || 0), 0);
+
+  const eligibleComboDiscount = comboCount > 2; // 3+ combos
+  const eligibleProductDiscount = productCount >= 5; // 5+ products
+  const discountMultiplier =
+    eligibleComboDiscount || eligibleProductDiscount ? 0.95 : 1;
+
+  return Math.round((comboTotal + productTotal) * discountMultiplier);
+}
+
+async function generateUniquePayOSOrderCode() {
+  for (let i = 0; i < 5; i++) {
+    const base = Math.floor(Date.now() / 1000) % 2147483647;
+    const rand = Math.floor(Math.random() * 10000);
+    let orderCode = base + rand;
+    if (orderCode >= 2147483647) orderCode = orderCode - 10000;
+
+    const exist = await Booking.findOne({ payosOrderCode: orderCode }).select(
+      "_id"
+    );
+    if (!exist) return orderCode;
+  }
+  // Fallback (should be extremely rare)
+  return Math.floor(Date.now() / 1000) % 2147483647;
 }
 
 function getMomoConfig() {
@@ -335,13 +390,85 @@ exports.createPayOSPaymentFromCart = async (req, res) => {
   }
 };
 
+exports.createPayOSPaymentFromBooking = async (req, res) => {
+  try {
+    const { bookingId } = req.body || {};
+    if (!bookingId) {
+      return res.status(400).json({ message: "bookingId is required" });
+    }
+
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ message: "Booking not found" });
+    }
+
+    if (booking.status === "CONFIRMED") {
+      return res.status(400).json({ message: "Booking is already confirmed" });
+    }
+    if (booking.paymentStatus === "PAID") {
+      return res.status(400).json({ message: "Booking is already paid" });
+    }
+
+    const totalPrice = await getBookingTotalPrice(booking);
+    const amount = Math.round(Number(totalPrice));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return res.status(400).json({ message: "Booking amount is invalid" });
+    }
+
+    const orderCode = await generateUniquePayOSOrderCode();
+    const shortBookingRef = String(booking._id).slice(-6);
+    const description = `Booking ${shortBookingRef}`; // PayOS limits description length
+    const requestData = {
+      orderCode,
+      amount,
+      description,
+      cancelUrl: process.env.PAYOS_CANCEL_URL || "http://localhost:3000/cancel",
+      returnUrl: process.env.PAYOS_RETURN_URL || "http://localhost:3000/success",
+    };
+
+    const paymentLinkRes = await payos.paymentRequests.create(requestData);
+
+    booking.payosOrderCode = orderCode;
+    booking.payosPaymentLinkId = paymentLinkRes.paymentLinkId;
+    booking.status = booking.status || "PENDING";
+    await booking.save();
+
+    return res.status(201).json({
+      checkoutUrl: paymentLinkRes.checkoutUrl,
+      orderCode: paymentLinkRes.orderCode,
+      paymentLinkId: paymentLinkRes.paymentLinkId,
+      bookingId: booking._id,
+      totalPrice: amount,
+    });
+  } catch (error) {
+    console.error("PayOS Create Booking Payment Error:", error);
+    return res.status(500).json({
+      message: error.message || "Failed to create PayOS payment link",
+    });
+  }
+};
+
 exports.payOSWebhook = async (req, res) => {
   try {
     const webhookData = await payos.webhooks.verify(req.body);
     // webhookData contains orderCode, amount, code, success
     console.log("PayOS Webhook Data:", webhookData);
 
-    // TODO: Update order status to PAID based on webhookData.orderCode here
+    const orderCode = webhookData?.orderCode;
+    if (orderCode !== undefined && orderCode !== null) {
+      const booking = await Booking.findOne({ payosOrderCode: orderCode });
+      if (booking) {
+        const isSuccess =
+          webhookData?.success === true ||
+          webhookData?.success === "true" ||
+          webhookData?.code === "00" ||
+          webhookData?.code === 0;
+
+        booking.paymentStatus = isSuccess ? "PAID" : "UNPAID";
+        booking.status = isSuccess ? "CONFIRMED" : "REJECTED";
+        await booking.save();
+      }
+    }
 
     return res.status(200).json({
       error: 0,

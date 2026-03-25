@@ -19,6 +19,7 @@ async function toBatchComboResponse(combos) {
     id: combo._id,
     type: combo.type ?? "combo",
     name: combo.name,
+    image: combo.images ?? combo.image,
     price: combo.price,
     product: (combo.product || []).map((p) => ({
       id: p.id,
@@ -69,6 +70,15 @@ exports.createCombo = async (req, res) => {
   try {
     const payload = { ...req.body };
     delete payload.type;
+
+    if (payload.image !== undefined && payload.images === undefined) {
+      payload.images = payload.image;
+    }
+    if (typeof payload.images === "string") {
+      payload.images = [payload.images];
+    }
+    delete payload.image;
+
     if (payload.product !== undefined) {
       payload.product = await buildComboProductsFromIds(payload.product);
     }
@@ -120,6 +130,15 @@ exports.updateCombo = async (req, res) => {
   try {
     const payload = { ...req.body };
     delete payload.type;
+
+    if (payload.image !== undefined && payload.images === undefined) {
+      payload.images = payload.image;
+    }
+    if (typeof payload.images === "string") {
+      payload.images = [payload.images];
+    }
+    delete payload.image;
+
     if (payload.product !== undefined) {
       payload.product = await buildComboProductsFromIds(payload.product);
     }
