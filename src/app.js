@@ -1,5 +1,7 @@
 const express = require("express");
 const mongoose = require("mongoose");
+const path = require("path");
+const cors = require("cors");
 const { v2: cloudinary } = require("cloudinary");
 require("dotenv").config();
 
@@ -12,12 +14,17 @@ const comboRoutes = require("./routes/comboRoutes");
 const cartRoutes = require("./routes/cartRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
+const reminderRoutes = require("./routes/reminderRoutes");
 const seedDefaultCategories = require("./utils/categorySeeder");
+const { startReminderScheduler } = require("./services/reminderService");
 
 const app = express();
+app.use(cors());
 app.use(express.json());
+app.use(express.static(path.join(__dirname, "..", "public")));
+app.use("/test-ui", express.static(path.join(__dirname, "..", "public")));
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 3001;
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -32,6 +39,7 @@ mongoose
   .then(async () => {
     console.log("MongoDB connected");
     await seedDefaultCategories();
+    startReminderScheduler();
 
     app.listen(PORT, () => {
       console.log(`Server running on ${PORT}`);
@@ -52,5 +60,6 @@ app.use("/api/combos", comboRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/reminders", reminderRoutes);
 
  

@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reminder API Tester</title>
+    <style>
+      body { font-family: Arial, sans-serif; max-width: 900px; margin: 24px auto; padding: 0 16px; }
+      h1 { margin-bottom: 8px; }
+      .card { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+      .row { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+      .col { display: flex; flex-direction: column; gap: 6px; min-width: 240px; flex: 1; }
+      input, button, textarea { padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 14px; }
+      button { cursor: pointer; }
+      pre { background: #111; color: #d7ffd7; padding: 12px; border-radius: 8px; overflow: auto; min-height: 90px; }
+      .hint { font-size: 13px; color: #444; margin-top: 6px; }
+    </style>
+  </head>
+  <body>
+    <h1>Reminder API Tester</h1>
+    <p class="hint">Use this page to login, create reminder, and get reminders.</p>
+    <div class="card" id="permissionCard" style="display:none;">
+      <h3>Enable Notifications</h3>
+      <p class="hint">
+        Please allow notifications so you can receive reminder alerts.
+      </p>
+      <div class="row">
+        <button id="btnAllowNotifications">Allow notifications</button>
+      </div>
+      <p class="hint" id="permissionStatus"></p>
+    </div>
+
+    <div class="card">
+      <h3>Config</h3>
+      <div class="row">
+        <div class="col">
+          <label>Base URL</label>
+          <input id="baseUrl" />
+        </div>
+        <div class="col">
+          <label>JWT Token</label>
+          <input id="token" placeholder="Bearer token" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="col">
+          <label>Firebase VAPID key</label>
+          <input
+            id="vapidKey"
+            value="BNJDr8dZy8JTKmiUwk58-QrBNPpEaWTexnUYLrbeRuNAPkS7dEtVp4AHs2oHS6ToL55DH5MvGCW_eaKnvLacj1w"
+            placeholder="Paste Web Push certificate key"
+          />
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Login</h3>
+      <div class="row">
+        <div class="col">
+          <label>Email</label>
+          <input id="email" placeholder="your@email.com" />
+        </div>
+        <div class="col">
+          <label>Password</label>
+          <input id="password" type="password" placeholder="password" />
+        </div>
+      </div>
+      <button id="btnLogin">Login & Save Token</button>
+    </div>
+
+    <div class="card">
+      <h3>Create Reminder</h3>
+      <div class="row">
+        <div class="col">
+          <label>Date (YYYY-MM-DD)</label>
+          <input id="date" placeholder="2026-04-02" />
+        </div>
+        <div class="col">
+          <label>FCM Token (first time required)</label>
+          <textarea id="fcmToken" rows="3" placeholder="Optional after first reminder"></textarea>
+        </div>
+      </div>
+      <button id="btnCreateReminder">POST /api/reminders</button>
+      <button id="btnGetReminders">GET /api/reminders</button>
+      <button id="btnGetFcmToken">Get FCM Token</button>
+    </div>
+
+    <div class="card">
+      <h3>Response</h3>
+      <pre id="output"></pre>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-messaging-compat.js"></script>
+    <script>
+      const firebaseConfig = {
+        apiKey: "AIzaSyA60yCWPDcvjlxqPA2Ju8vU6pVs8D5bg74",
+        authDomain: "fpt-project-1cdef.firebaseapp.com",
+        projectId: "fpt-project-1cdef",
+        storageBucket: "fpt-project-1cdef.firebasestorage.app",
+        messagingSenderId: "322714016502",
+        appId: "1:322714016502:web:39ca847d9d6487237faad7",
+        measurementId: "G-PWXR1Z661L",
+      };
+
+      let messaging = null;
+      const output = document.getElementById("output");
+      const tokenInput = document.getElementById("token");
+      const permissionCard = document.getElementById("permissionCard");
+      const permissionStatus = document.getElementById("permissionStatus");
+      document.getElementById("baseUrl").value = window.location.origin;
+
+      function initFirebaseMessaging() {
+        try {
+          if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+          }
+          messaging = firebase.messaging();
+          return true;
+        } catch (error) {
+          setOutput({ message: "Firebase init failed. Update firebaseConfig in this file.", error: error.message });
+          return false;
+        }
+      }
+
+      function refreshPermissionStatus() {
+        if (!("Notification" in window)) {
+          permissionCard.style.display = "block";
+          permissionStatus.textContent = "This browser does not support Notification API.";
+          return;
+        }
+
+        const state = Notification.permission;
+        permissionCard.style.display = state === "granted" ? "none" : "block";
+        permissionStatus.textContent = `Current status: ${state}`;
+      }
+
+      async function getAndFillFcmToken() {
+        if (!("Notification" in window)) {
+          setOutput("This browser does not support Notification API");
+          return;
+        }
+
+        if (!window.isSecureContext) {
+          setOutput("FCM token requires secure context (https or localhost)");
+          return;
+        }
+
+        if (!initFirebaseMessaging()) return;
+
+        if (Notification.permission !== "granted") {
+          const perm = await Notification.requestPermission();
+          refreshPermissionStatus();
+          if (perm !== "granted") {
+            setOutput("Notification permission is not granted");
+            return;
+          }
+        }
+
+        const vapidKey = document.getElementById("vapidKey").value.trim();
+        if (!vapidKey) {
+          setOutput("Please input Firebase VAPID key");
+          return;
+        }
+
+        const serviceWorkerRegistration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+        const token = await messaging.getToken({
+          vapidKey,
+          serviceWorkerRegistration,
+        });
+
+        if (!token) {
+          setOutput("Cannot get FCM token. Check VAPID key and Firebase config.");
+          console.log("[FCM] Token is empty");
+          return null;
+        }
+
+        document.getElementById("fcmToken").value = token;
+        console.log("[FCM] Token:", token);
+        setOutput({ message: "FCM token ready", fcmToken: token });
+        return token;
+      }
+
+      function setOutput(data) {
+        output.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+      }
+
+      function getBaseUrl() {
+        return document.getElementById("baseUrl").value.trim();
+      }
+
+      function authHeaders() {
+        const token = tokenInput.value.trim();
+        return token ? { Authorization: `Bearer ${token}` } : {};
+      }
+
+      async function callApi(path, options = {}) {
+        const res = await fetch(`${getBaseUrl()}${path}`, options);
+        const data = await res.json().catch(() => ({}));
+        setOutput({ status: res.status, data });
+        return { res, data };
+      }
+
+      document.getElementById("btnLogin").addEventListener("click", async () => {
+        const email = document.getElementById("email").value.trim();
+        const password = document.getElementById("password").value;
+        if (!email || !password) {
+          setOutput("Please input email and password");
+          return;
+        }
+        const { data } = await callApi("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (data && data.token) tokenInput.value = data.token;
+      });
+
+      document.getElementById("btnCreateReminder").addEventListener("click", async () => {
+        const date = document.getElementById("date").value.trim();
+        let fcmToken = document.getElementById("fcmToken").value.trim();
+        if (!date) {
+          setOutput("Please input date");
+          return;
+        }
+
+        // Auto get token before sending reminder if token is empty.
+        if (!fcmToken) {
+          try {
+            const generatedToken = await getAndFillFcmToken();
+            if (!generatedToken) {
+              setOutput("Cannot send reminder because FCM token is empty");
+              return;
+            }
+            fcmToken = generatedToken;
+          } catch (error) {
+            setOutput({ message: "Auto get FCM token failed", error: error.message });
+            return;
+          }
+        }
+
+        const body = { date };
+        if (fcmToken) body.fcmToken = fcmToken;
+        await callApi("/api/reminders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify(body),
+        });
+      });
+
+      document.getElementById("btnGetReminders").addEventListener("click", async () => {
+        await callApi("/api/reminders", {
+          method: "GET",
+          headers: { ...authHeaders() },
+        });
+      });
+
+      document.getElementById("btnAllowNotifications").addEventListener("click", async () => {
+        if (!("Notification" in window)) {
+          refreshPermissionStatus();
+          return;
+        }
+        await Notification.requestPermission();
+        refreshPermissionStatus();
+      });
+
+      document.getElementById("btnGetFcmToken").addEventListener("click", async () => {
+        try {
+          await getAndFillFcmToken();
+        } catch (error) {
+          console.error("[FCM] Get token error:", error);
+          setOutput({ message: "Get FCM token failed", error: error.message });
+        }
+      });
+
+      refreshPermissionStatus();
+    </script>
+  </body>
+</html>
