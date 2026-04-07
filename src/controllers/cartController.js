@@ -211,3 +211,47 @@ exports.removeFromCart = async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 };
+
+// PATCH set item quantity (absolute value)
+exports.updateCartItem = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    if (!req.body || typeof req.body !== "object") {
+      return res.status(400).json({
+        message:
+          "JSON body required; set Content-Type: application/json and send itemId, quantity",
+      });
+    }
+    const { itemId, quantity } = req.body;
+
+    if (!itemId) {
+      return res.status(400).json({ message: "itemId is required" });
+    }
+
+    const nextQuantity = Number(quantity);
+    if (!Number.isFinite(nextQuantity)) {
+      return res.status(400).json({ message: "quantity must be a number" });
+    }
+
+    const cart = await Cart.findOne({ userId });
+    if (!cart) {
+      return res.status(404).json({ message: "Cart not found" });
+    }
+
+    const idx = cart.items.findIndex((i) => String(i.itemId) === String(itemId));
+    if (idx < 0) {
+      return res.status(404).json({ message: "Item not in cart" });
+    }
+
+    if (nextQuantity <= 0) {
+      cart.items.splice(idx, 1);
+    } else {
+      cart.items[idx].quantity = nextQuantity;
+    }
+
+    await cart.save();
+    return res.json(await formatCartResponse(cart));
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+};

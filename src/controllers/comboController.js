@@ -168,11 +168,48 @@ exports.createCombo = async (req, res) => {
 // Get all combos
 exports.getCombos = async (req, res) => {
   try {
-    const { name } = req.query;
+    const {
+      name,
+      categoryCeremonyId,
+      categoryPackageId,
+      categoryCeremonySlug,
+      categoryPackageSlug,
+      ceremonySlug,
+      packageSlug,
+    } = req.query;
     const filter = {};
 
     if (name) {
       filter.name = { $regex: name, $options: "i" };
+    }
+    if (categoryCeremonyId) {
+      filter.categoryCeremonyId = categoryCeremonyId;
+    }
+    if (categoryPackageId) {
+      filter.categoryPackageId = categoryPackageId;
+    }
+    const ceremonySlugValue = categoryCeremonySlug || ceremonySlug;
+    const packageSlugValue = categoryPackageSlug || packageSlug;
+
+    if (ceremonySlugValue) {
+      const ceremonyCategory = await Category.findOne({
+        slug: ceremonySlugValue,
+        type: "CEREMONY",
+      }).select("_id");
+      if (!ceremonyCategory) {
+        return res.json({ total: 0, data: [] });
+      }
+      filter.categoryCeremonyId = ceremonyCategory._id;
+    }
+    if (packageSlugValue) {
+      const packageCategory = await Category.findOne({
+        slug: packageSlugValue,
+        type: "PACKAGE",
+      }).select("_id");
+      if (!packageCategory) {
+        return res.json({ total: 0, data: [] });
+      }
+      filter.categoryPackageId = packageCategory._id;
     }
 
     const combos = await Combo.find(filter).populate(CATEGORY_POPULATE);

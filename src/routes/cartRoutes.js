@@ -3,6 +3,7 @@ const {
   getCart,
   addToCart,
   removeFromCart,
+  updateCartItem,
 } = require("../controllers/cartController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -12,6 +13,7 @@ router.use(authMiddleware);
 
 router.get("/", getCart);
 router.post("/add", addToCart);
+router.patch("/update", updateCartItem);
 router.post("/remove", removeFromCart);
 router.delete("/remove", removeFromCart);
 
