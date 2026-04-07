@@ -74,11 +74,18 @@ async function toBatchComboResponse(combos) {
   }
   return combos.map((combo) => {
     const c = combo.toObject ? combo.toObject() : combo;
+    const images = Array.isArray(c.images)
+      ? c.images
+      : c.image
+      ? [c.image]
+      : [];
     return {
       id: c._id,
       type: c.type ?? "combo",
       name: c.name,
-      image: c.images ?? c.image,
+      image: images[0] ?? null,
+      images,
+      isActive: c.isActive,
       price: c.price,
       categoryCeremonyId: shapeCategoryRef(c.categoryCeremonyId),
       categoryPackageId: shapeCategoryRef(c.categoryPackageId),
@@ -93,6 +100,16 @@ async function toBatchComboResponse(combos) {
 async function toComboResponse(combo) {
   const [one] = await toBatchComboResponse([combo]);
   return one;
+}
+
+function normalizeComboImagePayload(payload) {
+  if (payload.image !== undefined && payload.images === undefined) {
+    payload.images = payload.image;
+  }
+  if (typeof payload.images === "string") {
+    payload.images = [payload.images];
+  }
+  delete payload.image;
 }
 
 const normalizeProductIds = (productInput = []) => {
@@ -132,14 +149,7 @@ exports.createCombo = async (req, res) => {
   try {
     const payload = { ...req.body };
     delete payload.type;
-
-    if (payload.image !== undefined && payload.images === undefined) {
-      payload.images = payload.image;
-    }
-    if (typeof payload.images === "string") {
-      payload.images = [payload.images];
-    }
-    delete payload.image;
+    normalizeComboImagePayload(payload);
 
     if (payload.product !== undefined) {
       payload.product = await buildComboProductsFromIds(payload.product);
@@ -197,14 +207,7 @@ exports.updateCombo = async (req, res) => {
   try {
     const payload = { ...req.body };
     delete payload.type;
-
-    if (payload.image !== undefined && payload.images === undefined) {
-      payload.images = payload.image;
-    }
-    if (typeof payload.images === "string") {
-      payload.images = [payload.images];
-    }
-    delete payload.image;
+    normalizeComboImagePayload(payload);
 
     if (payload.product !== undefined) {
       payload.product = await buildComboProductsFromIds(payload.product);

@@ -13,7 +13,18 @@ function cartTotals(items) {
   return { totalPrice, totalQuantity, totalItems };
 }
 
-async function getItemNameMaps(items) {
+function pickPrimaryImage(doc) {
+  if (!doc) return null;
+  if (Array.isArray(doc.images) && doc.images.length > 0) {
+    return doc.images[0] || null;
+  }
+  if (typeof doc.image === "string" && doc.image.trim() !== "") {
+    return doc.image;
+  }
+  return null;
+}
+
+async function getItemMetaMaps(items) {
   const productIds = [];
   const comboIds = [];
 
@@ -24,21 +35,28 @@ async function getItemNameMaps(items) {
 
   const [products, combos] = await Promise.all([
     productIds.length
-      ? Product.find({ _id: { $in: productIds } }).select("_id name")
+      ? Product.find({ _id: { $in: productIds } }).select("_id name images")
       : [],
-    comboIds.length ? Combo.find({ _id: { $in: comboIds } }).select("_id name") : [],
+    comboIds.length
+      ? Combo.find({ _id: { $in: comboIds } }).select("_id name images")
+      : [],
   ]);
 
   return {
     productNameMap: new Map(products.map((p) => [String(p._id), p.name])),
     comboNameMap: new Map(combos.map((c) => [String(c._id), c.name])),
+    productImageMap: new Map(
+      products.map((p) => [String(p._id), pickPrimaryImage(p)])
+    ),
+    comboImageMap: new Map(combos.map((c) => [String(c._id), pickPrimaryImage(c)])),
   };
 }
 
 async function formatCartResponse(cart) {
   if (!cart) return null;
   const sourceItems = cart.items || [];
-  const { productNameMap, comboNameMap } = await getItemNameMaps(sourceItems);
+  const { productNameMap, comboNameMap, productImageMap, comboImageMap } =
+    await getItemMetaMaps(sourceItems);
 
   const items = (cart.items || []).map((item) => ({
     id: item._id,
@@ -48,6 +66,10 @@ async function formatCartResponse(cart) {
       item.type === "product"
         ? productNameMap.get(String(item.itemId)) || null
         : comboNameMap.get(String(item.itemId)) || null,
+    image:
+      item.type === "product"
+        ? productImageMap.get(String(item.itemId)) || null
+        : comboImageMap.get(String(item.itemId)) || null,
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     lineTotal: lineTotal(item),

@@ -34,6 +34,10 @@ const comboSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
     categoryCeremonyId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Category",
