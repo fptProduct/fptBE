@@ -9,7 +9,8 @@ function lineTotal(item) {
 function cartTotals(items) {
   const totalPrice = items.reduce((sum, item) => sum + lineTotal(item), 0);
   const totalQuantity = items.reduce((sum, item) => sum + item.quantity, 0);
-  return { totalPrice, totalQuantity };
+  const totalItems = items.length;
+  return { totalPrice, totalQuantity, totalItems };
 }
 
 async function getItemNameMaps(items) {
@@ -51,13 +52,14 @@ async function formatCartResponse(cart) {
     unitPrice: item.unitPrice,
     lineTotal: lineTotal(item),
   }));
-  const { totalPrice, totalQuantity } = cartTotals(cart.items || []);
+  const { totalPrice, totalQuantity, totalItems } = cartTotals(cart.items || []);
   return {
     id: cart._id,
     userId: cart.userId,
     items,
     totalPrice,
     totalQuantity,
+    totalItems,
     updatedAt: cart.updatedAt,
   };
 }
