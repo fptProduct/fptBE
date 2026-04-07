@@ -1,5 +1,62 @@
 const Combo = require("../models/Combo");
 const Product = require("../models/Product");
+const Category = require("../models/Category");
+
+const CATEGORY_POPULATE = [
+  { path: "categoryCeremonyId", select: "label slug" },
+  { path: "categoryPackageId", select: "label slug" },
+];
+
+function shapeCategoryRef(cat) {
+  if (!cat || typeof cat !== "object" || cat._id == null) {
+    return { id: null, label: null, slug: null };
+  }
+  return { id: cat._id, label: cat.label, slug: cat.slug };
+}
+
+async function assertCategoryId(id, expectedType) {
+  const cat = await Category.findById(id);
+  if (!cat || cat.type !== expectedType) {
+    throw new Error(
+      `Invalid ${expectedType} category id`
+    );
+  }
+  return cat._id;
+}
+
+async function applyCategoryIdsFromPayload(payload, { required }) {
+  const ceremonyRaw =
+    payload.categoryCeremonyId ??
+    payload.ceremonyCategoryId ??
+    payload.ceremonyCategory;
+  const packageRaw =
+    payload.categoryPackageId ??
+    payload.packageCategoryId ??
+    payload.packageCategory;
+  delete payload.ceremonyCategoryId;
+  delete payload.ceremonyCategory;
+  delete payload.packageCategoryId;
+  delete payload.packageCategory;
+
+  if (required) {
+    if (ceremonyRaw == null || ceremonyRaw === "") {
+      throw new Error("categoryCeremonyId is required");
+    }
+    if (packageRaw == null || packageRaw === "") {
+      throw new Error("categoryPackageId is required");
+    }
+  }
+
+  if (ceremonyRaw != null && ceremonyRaw !== "") {
+    payload.categoryCeremonyId = await assertCategoryId(
+      ceremonyRaw,
+      "CEREMONY"
+    );
+  }
+  if (packageRaw != null && packageRaw !== "") {
+    payload.categoryPackageId = await assertCategoryId(packageRaw, "PACKAGE");
+  }
+}
 
 // Names in DB are a snapshot; always resolve current names from Product on read
 async function toBatchComboResponse(combos) {
@@ -15,17 +72,22 @@ async function toBatchComboResponse(combos) {
     );
     nameById = new Map(products.map((p) => [String(p._id), p.name]));
   }
-  return combos.map((combo) => ({
-    id: combo._id,
-    type: combo.type ?? "combo",
-    name: combo.name,
-    image: combo.images ?? combo.image,
-    price: combo.price,
-    product: (combo.product || []).map((p) => ({
-      id: p.id,
-      name: nameById.get(String(p.id)) ?? p.name,
-    })),
-  }));
+  return combos.map((combo) => {
+    const c = combo.toObject ? combo.toObject() : combo;
+    return {
+      id: c._id,
+      type: c.type ?? "combo",
+      name: c.name,
+      image: c.images ?? c.image,
+      price: c.price,
+      categoryCeremonyId: shapeCategoryRef(c.categoryCeremonyId),
+      categoryPackageId: shapeCategoryRef(c.categoryPackageId),
+      product: (c.product || []).map((p) => ({
+        id: p.id,
+        name: nameById.get(String(p.id)) ?? p.name,
+      })),
+    };
+  });
 }
 
 async function toComboResponse(combo) {
@@ -83,7 +145,10 @@ exports.createCombo = async (req, res) => {
       payload.product = await buildComboProductsFromIds(payload.product);
     }
 
+    await applyCategoryIdsFromPayload(payload, { required: true });
+
     const combo = await Combo.create({ ...payload, type: "combo" });
+    await combo.populate(CATEGORY_POPULATE);
     return res.status(201).json(await toComboResponse(combo));
   } catch (error) {
     return res.status(400).json({ message: error.message });
@@ -100,7 +165,7 @@ exports.getCombos = async (req, res) => {
       filter.name = { $regex: name, $options: "i" };
     }
 
-    const combos = await Combo.find(filter);
+    const combos = await Combo.find(filter).populate(CATEGORY_POPULATE);
     const total = await Combo.countDocuments(filter);
 
     return res.json({
@@ -115,7 +180,9 @@ exports.getCombos = async (req, res) => {
 // Get combo by id
 exports.getComboById = async (req, res) => {
   try {
-    const combo = await Combo.findById(req.params.id);
+    const combo = await Combo.findById(req.params.id).populate(
+      CATEGORY_POPULATE
+    );
     if (!combo) {
       return res.status(404).json({ message: "Combo not found" });
     }
@@ -143,6 +210,17 @@ exports.updateCombo = async (req, res) => {
       payload.product = await buildComboProductsFromIds(payload.product);
     }
 
+    const hasCategoryKeys =
+      payload.categoryCeremonyId != null ||
+      payload.categoryPackageId != null ||
+      payload.ceremonyCategoryId != null ||
+      payload.ceremonyCategory != null ||
+      payload.packageCategoryId != null ||
+      payload.packageCategory != null;
+    if (hasCategoryKeys) {
+      await applyCategoryIdsFromPayload(payload, { required: false });
+    }
+
     const combo = await Combo.findByIdAndUpdate(req.params.id, payload, {
       new: true,
       runValidators: true,
@@ -152,6 +230,7 @@ exports.updateCombo = async (req, res) => {
       return res.status(404).json({ message: "Combo not found" });
     }
 
+    await combo.populate(CATEGORY_POPULATE);
     return res.json(await toComboResponse(combo));
   } catch (error) {
     return res.status(400).json({ message: error.message });

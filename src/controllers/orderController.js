@@ -15,9 +15,9 @@ function isValidTime(value) {
 }
 
 async function buildQuote({ ceremonyType, packageId }) {
-  const product = await Product.findById(packageId).select(
-    "name price ceremonyTypes packageType isActive"
-  );
+  const product = await Product.findById(packageId)
+    .select("name price categoryFoodId isActive")
+    .populate({ path: "categoryFoodId", select: "slug" });
   if (!product) {
     return { ok: false, status: 404, message: "Package not found" };
   }
@@ -26,8 +26,10 @@ async function buildQuote({ ceremonyType, packageId }) {
     return { ok: false, status: 400, message: "Package is not active" };
   }
 
-  if (ceremonyType && Array.isArray(product.ceremonyTypes) && !product.ceremonyTypes.includes(ceremonyType)) {
-    return { ok: false, status: 400, message: "Selected ceremony type is not available for this package" };
+  // Order vẫn yêu cầu packageType, nên lấy từ CATEGORY-FOOD slug của product
+  const packageType = product.categoryFoodId?.slug;
+  if (!packageType) {
+    return { ok: false, status: 400, message: "Category-food is missing for this package" };
   }
 
   const packagePrice = product.price;
@@ -46,7 +48,7 @@ async function buildQuote({ ceremonyType, packageId }) {
       package: {
         productId: product._id,
         productName: product.name,
-        packageType: product.packageType,
+        packageType,
         price: product.price,
       },
     },

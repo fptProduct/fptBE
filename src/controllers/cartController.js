@@ -12,12 +12,41 @@ function cartTotals(items) {
   return { totalPrice, totalQuantity };
 }
 
-function formatCartResponse(cart) {
+async function getItemNameMaps(items) {
+  const productIds = [];
+  const comboIds = [];
+
+  for (const item of items) {
+    if (item.type === "product") productIds.push(item.itemId);
+    if (item.type === "combo") comboIds.push(item.itemId);
+  }
+
+  const [products, combos] = await Promise.all([
+    productIds.length
+      ? Product.find({ _id: { $in: productIds } }).select("_id name")
+      : [],
+    comboIds.length ? Combo.find({ _id: { $in: comboIds } }).select("_id name") : [],
+  ]);
+
+  return {
+    productNameMap: new Map(products.map((p) => [String(p._id), p.name])),
+    comboNameMap: new Map(combos.map((c) => [String(c._id), c.name])),
+  };
+}
+
+async function formatCartResponse(cart) {
   if (!cart) return null;
+  const sourceItems = cart.items || [];
+  const { productNameMap, comboNameMap } = await getItemNameMaps(sourceItems);
+
   const items = (cart.items || []).map((item) => ({
     id: item._id,
     type: item.type,
     itemId: item.itemId,
+    name:
+      item.type === "product"
+        ? productNameMap.get(String(item.itemId)) || null
+        : comboNameMap.get(String(item.itemId)) || null,
     quantity: item.quantity,
     unitPrice: item.unitPrice,
     lineTotal: lineTotal(item),
@@ -63,7 +92,7 @@ exports.getCart = async (req, res) => {
     if (!cart) {
       cart = await Cart.create({ userId, items: [] });
     }
-    return res.json(formatCartResponse(cart));
+    return res.json(await formatCartResponse(cart));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -112,7 +141,7 @@ exports.addToCart = async (req, res) => {
     }
 
     await cart.save();
-    return res.status(201).json(formatCartResponse(cart));
+    return res.status(201).json(await formatCartResponse(cart));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -153,7 +182,7 @@ exports.removeFromCart = async (req, res) => {
     }
 
     await cart.save();
-    return res.json(formatCartResponse(cart));
+    return res.json(await formatCartResponse(cart));
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

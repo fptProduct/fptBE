@@ -34,6 +34,16 @@ const comboSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    categoryCeremonyId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+    },
+    categoryPackageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true,
+    },
     price: {
       type: Number,
       required: true,

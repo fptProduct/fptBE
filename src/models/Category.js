@@ -2,17 +2,21 @@ const mongoose = require("mongoose");
 
 const categorySchema = new mongoose.Schema(
   {
-    // CEREMONY or PACKAGE
     type: {
       type: String,
-      enum: ["CEREMONY", "PACKAGE"],
+      enum: ["CEREMONY", "PACKAGE", "CATEGORY-FOOD"],
       required: true,
       index: true,
     },
-    // value machine-readable for FE/BE (must be 1 word uppercase style)
-    value: {
+    slug: {
       type: String,
       required: true,
+      trim: true,
+    },
+    // Legacy field kept for backward compatibility with an existing unique index
+    // (some environments still have unique index on { type, value } in Mongo).
+    value: {
+      type: String,
       trim: true,
     },
     label: {
@@ -30,7 +34,7 @@ const categorySchema = new mongoose.Schema(
   }
 );
 
+categorySchema.index({ type: 1, slug: 1 }, { unique: true });
 categorySchema.index({ type: 1, value: 1 }, { unique: true });
 
 module.exports = mongoose.model("Category", categorySchema);
-

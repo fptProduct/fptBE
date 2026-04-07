@@ -18,12 +18,10 @@ const productSchema = new mongoose.Schema(
       trim: true,
     },
 
-    descriptionItems: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
+    descriptionItems: {
+      type: String,
+      trim: true,
+    },
     price: {
       type: Number,
       required: true,
@@ -35,16 +33,11 @@ const productSchema = new mongoose.Schema(
         trim: true,
       },
     ],
-    ceremonyTypes: [
-      {
-        type: String,
-        trim: true,
-      },
-    ],
-    packageType: {
-      type: String,
+    // Store only the id of CATEGORY-FOOD
+    categoryFoodId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
       required: true,
-      trim: true,
     },
     isActive: {
       type: Boolean,
