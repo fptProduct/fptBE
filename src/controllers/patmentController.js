@@ -16,6 +16,58 @@ const payos = new PayOS({
 
 const DEPOSIT_RATIO = 0.5;
 
+function normalizeBaseUrl(url) {
+  if (!url) return "";
+  return String(url).replace(/\/+$/, "");
+}
+
+function getClientBaseUrl(req) {
+  const origin = normalizeBaseUrl(req.get("origin"));
+  if (origin) return origin;
+
+  const referer = req.get("referer");
+  if (referer) {
+    try {
+      const refererUrl = new URL(referer);
+      return normalizeBaseUrl(refererUrl.origin);
+    } catch (_error) {
+      // ignore invalid referer
+    }
+  }
+
+  return "";
+}
+
+function getPayOSRedirectUrls(req) {
+  const clientBaseUrl = getClientBaseUrl(req);
+  const frontendBaseUrl = normalizeBaseUrl(process.env.FRONTEND_URL);
+  const resolvedBaseUrl =
+    clientBaseUrl || frontendBaseUrl || normalizeBaseUrl(process.env.PAYOS_BASE_URL);
+
+  const returnUrlFromBase = resolvedBaseUrl
+    ? `${resolvedBaseUrl}/payment-success`
+    : "";
+  const cancelUrlFromBase = resolvedBaseUrl
+    ? `${resolvedBaseUrl}/payment-cancel`
+    : "";
+
+  const returnUrl = returnUrlFromBase || process.env.PAYOS_RETURN_URL || "";
+  const cancelUrl = cancelUrlFromBase || process.env.PAYOS_CANCEL_URL || "";
+
+  if (!returnUrl || !cancelUrl) {
+    const err = new Error(
+      "PayOS redirect URLs are missing. Send request from FE origin or set FRONTEND_URL/PAYOS_BASE_URL/PAYOS_RETURN_URL/PAYOS_CANCEL_URL."
+    );
+    err.status = 500;
+    throw err;
+  }
+
+  return {
+    returnUrl,
+    cancelUrl,
+  };
+}
+
 function buildMomoSignature(secretKey, params) {
   const {
     accessKey,
@@ -325,12 +377,13 @@ exports.createPayOSPayment = async (req, res) => {
     const randomOrderCode = Number(String(Date.now()).slice(-6) + Math.floor(Math.random() * 1000));
     const orderCode = clientOrderId ? Number(clientOrderId) : randomOrderCode;
 
+    const { returnUrl, cancelUrl } = getPayOSRedirectUrls(req);
     const requestData = {
       orderCode,
       amount: Math.round(Number(amount)),
       description: description || "Thanh toan don hang",
-      cancelUrl: process.env.PAYOS_CANCEL_URL || "http://localhost:3000/cancel",
-      returnUrl: process.env.PAYOS_RETURN_URL || "http://localhost:3000/success",
+      cancelUrl,
+      returnUrl,
     };
 
     const paymentLinkRes = await payos.paymentRequests.create(requestData);
@@ -367,12 +420,13 @@ exports.createPayOSPaymentFromCart = async (req, res) => {
 
     const randomOrderCode = Number(String(Date.now()).slice(-6) + Math.floor(Math.random() * 1000));
 
+    const { returnUrl, cancelUrl } = getPayOSRedirectUrls(req);
     const requestData = {
       orderCode: randomOrderCode,
       amount: amountStr,
       description: body.description || "Dat coc gio hang",
-      cancelUrl: process.env.PAYOS_CANCEL_URL || "http://localhost:3000/cancel",
-      returnUrl: process.env.PAYOS_RETURN_URL || "http://localhost:3000/success",
+      cancelUrl,
+      returnUrl,
     };
 
     const paymentLinkRes = await payos.paymentRequests.create(requestData);
@@ -418,12 +472,13 @@ exports.createPayOSPaymentFromBooking = async (req, res) => {
     const orderCode = await generateUniquePayOSOrderCode();
     const shortBookingRef = String(booking._id).slice(-6);
     const description = `Booking ${shortBookingRef}`; // PayOS limits description length
+    const { returnUrl, cancelUrl } = getPayOSRedirectUrls(req);
     const requestData = {
       orderCode,
       amount,
       description,
-      cancelUrl: process.env.PAYOS_CANCEL_URL || "http://localhost:3000/cancel",
-      returnUrl: process.env.PAYOS_RETURN_URL || "http://localhost:3000/success",
+      cancelUrl,
+      returnUrl,
     };
 
     const paymentLinkRes = await payos.paymentRequests.create(requestData);
