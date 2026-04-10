@@ -89,6 +89,7 @@ exports.createBooking = async (req, res) => {
     const totalPrice = Math.round(rawTotalPrice * discountMultiplier);
 
     const booking = await Booking.create({
+      userId: req.user?.id || null,
       bookingDate: new Date(`${bookingDate}T00:00:00.000Z`),
       bookingTime: bookingTime.trim(),
       bookingType,

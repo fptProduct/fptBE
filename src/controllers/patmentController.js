@@ -2,8 +2,10 @@ const crypto = require("crypto");
 const axios = require("axios");
 const Cart = require("../models/Cart");
 const Booking = require("../models/Booking");
+const CartPayment = require("../models/CartPayment");
 const Product = require("../models/Product");
 const Combo = require("../models/Combo");
+const User = require("../models/User");
 
 const PayOSModule = require("@payos/node");
 const PayOS = PayOSModule.default || PayOSModule.PayOS || PayOSModule;
@@ -431,12 +433,28 @@ exports.createPayOSPaymentFromCart = async (req, res) => {
 
     const paymentLinkRes = await payos.paymentRequests.create(requestData);
 
+    const cartPayment = await CartPayment.create({
+      userId,
+      orderCode: paymentLinkRes.orderCode,
+      paymentLinkId: paymentLinkRes.paymentLinkId || "",
+      cartTotal,
+      paidAmount: amountStr,
+      items: items.map((i) => ({
+        type: i.type,
+        itemId: i.itemId,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+      })),
+      paymentStatus: "UNPAID",
+    });
+
     return res.status(201).json({
       checkoutUrl: paymentLinkRes.checkoutUrl,
       orderCode: paymentLinkRes.orderCode,
       paymentLinkId: paymentLinkRes.paymentLinkId,
       cartTotal,
       depositAmount: amountStr,
+      cartPaymentId: cartPayment._id,
     });
   } catch (error) {
     console.error("PayOS Create Cart Payment Error:", error);
@@ -510,6 +528,7 @@ exports.payOSWebhook = async (req, res) => {
     console.log("PayOS Webhook Data:", webhookData);
 
     const orderCode = webhookData?.orderCode;
+    let paymentSummary = null;
     if (orderCode !== undefined && orderCode !== null) {
       const booking = await Booking.findOne({ payosOrderCode: orderCode });
       if (booking) {
@@ -522,6 +541,52 @@ exports.payOSWebhook = async (req, res) => {
         booking.paymentStatus = isSuccess ? "PAID" : "UNPAID";
         booking.status = isSuccess ? "CONFIRMED" : "REJECTED";
         await booking.save();
+
+        if (isSuccess) {
+          const user = booking.userId
+            ? await User.findById(booking.userId).select("name image").lean()
+            : null;
+          paymentSummary = {
+            userId: booking.userId || null,
+            userName: user?.name || booking.customerName || "",
+            userImage: user?.image || "",
+            paidAmount: Math.round(Number(booking.totalPrice || webhookData?.amount || 0)),
+            paymentStatus: booking.paymentStatus,
+            bookingStatus: booking.status,
+            bookingId: booking._id,
+            source: "booking",
+          };
+        }
+      } else {
+        const cartPayment = await CartPayment.findOne({ orderCode });
+        if (cartPayment) {
+          const isSuccess =
+            webhookData?.success === true ||
+            webhookData?.success === "true" ||
+            webhookData?.code === "00" ||
+            webhookData?.code === 0;
+
+          cartPayment.paymentStatus = isSuccess ? "PAID" : "FAILED";
+          cartPayment.paidAt = isSuccess ? new Date() : null;
+          await cartPayment.save();
+
+          if (isSuccess) {
+            const user = await User.findById(cartPayment.userId)
+              .select("name image")
+              .lean();
+            paymentSummary = {
+              userId: cartPayment.userId || null,
+              userName: user?.name || "",
+              userImage: user?.image || "",
+              paidAmount: Math.round(
+                Number(cartPayment.paidAmount || webhookData?.amount || 0)
+              ),
+              paymentStatus: cartPayment.paymentStatus,
+              cartPaymentId: cartPayment._id,
+              source: "cart",
+            };
+          }
+        }
       }
     }
 
@@ -529,6 +594,7 @@ exports.payOSWebhook = async (req, res) => {
       error: 0,
       message: "Ok",
       data: webhookData,
+      paymentSummary,
     });
   } catch (error) {
     console.error("PayOS Webhook Error:", error);

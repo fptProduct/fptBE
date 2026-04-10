@@ -15,6 +15,7 @@ const cartRoutes = require("./routes/cartRoutes");
 const paymentRoutes = require("./routes/paymentRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
 const reminderRoutes = require("./routes/reminderRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 const seedDefaultCategories = require("./utils/categorySeeder");
 const { startReminderScheduler } = require("./services/reminderService");
 
@@ -61,5 +62,5 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/reminders", reminderRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
- 
