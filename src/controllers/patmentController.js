@@ -524,20 +524,27 @@ exports.createPayOSPaymentFromBooking = async (req, res) => {
 exports.payOSWebhook = async (req, res) => {
   try {
     const webhookData = await payos.webhooks.verify(req.body);
-    // webhookData contains orderCode, amount, code, success
     console.log("PayOS Webhook Data:", webhookData);
 
-    const orderCode = webhookData?.orderCode;
+    const payload = webhookData?.data && typeof webhookData.data === "object"
+      ? webhookData.data
+      : webhookData;
+    const orderCodeRaw = payload?.orderCode ?? webhookData?.orderCode;
+    const orderCode = Number(orderCodeRaw);
+    const isSuccess =
+      payload?.success === true ||
+      payload?.success === "true" ||
+      webhookData?.success === true ||
+      webhookData?.success === "true" ||
+      payload?.code === "00" ||
+      payload?.code === 0 ||
+      webhookData?.code === "00" ||
+      webhookData?.code === 0;
+
     let paymentSummary = null;
-    if (orderCode !== undefined && orderCode !== null) {
+    if (Number.isFinite(orderCode)) {
       const booking = await Booking.findOne({ payosOrderCode: orderCode });
       if (booking) {
-        const isSuccess =
-          webhookData?.success === true ||
-          webhookData?.success === "true" ||
-          webhookData?.code === "00" ||
-          webhookData?.code === 0;
-
         booking.paymentStatus = isSuccess ? "PAID" : "UNPAID";
         booking.status = isSuccess ? "CONFIRMED" : "REJECTED";
         await booking.save();
@@ -550,7 +557,9 @@ exports.payOSWebhook = async (req, res) => {
             userId: booking.userId || null,
             userName: user?.name || booking.customerName || "",
             userImage: user?.image || "",
-            paidAmount: Math.round(Number(booking.totalPrice || webhookData?.amount || 0)),
+            paidAmount: Math.round(
+              Number(booking.totalPrice || payload?.amount || webhookData?.amount || 0)
+            ),
             paymentStatus: booking.paymentStatus,
             bookingStatus: booking.status,
             bookingId: booking._id,
@@ -560,12 +569,6 @@ exports.payOSWebhook = async (req, res) => {
       } else {
         const cartPayment = await CartPayment.findOne({ orderCode });
         if (cartPayment) {
-          const isSuccess =
-            webhookData?.success === true ||
-            webhookData?.success === "true" ||
-            webhookData?.code === "00" ||
-            webhookData?.code === 0;
-
           cartPayment.paymentStatus = isSuccess ? "PAID" : "FAILED";
           cartPayment.paidAt = isSuccess ? new Date() : null;
           await cartPayment.save();
@@ -579,7 +582,7 @@ exports.payOSWebhook = async (req, res) => {
               userName: user?.name || "",
               userImage: user?.image || "",
               paidAmount: Math.round(
-                Number(cartPayment.paidAmount || webhookData?.amount || 0)
+                Number(cartPayment.paidAmount || payload?.amount || webhookData?.amount || 0)
               ),
               paymentStatus: cartPayment.paymentStatus,
               cartPaymentId: cartPayment._id,

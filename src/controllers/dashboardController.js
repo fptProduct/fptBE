@@ -25,15 +25,6 @@ function pctChange(current, previous) {
   return Math.round(((current - previous) / previous) * 1000) / 10;
 }
 
-function initialsFromName(name) {
-  if (!name || typeof name !== "string") return "?";
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.trim().slice(0, 2).toUpperCase() || "?";
-}
-
 async function sumRevenueInRange(start, end) {
   const [row] = await Order.aggregate([
     {
@@ -269,25 +260,6 @@ exports.getDashboard = async (req, res) => {
     const productRevenueByMonth = await getProductRevenueByMonth(year);
     const buyers = await getProductBuyers();
 
-    const recentOrders = await Order.find({
-      status: { $nin: ["CANCELLED", "REJECTED"] },
-    })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .select("customer totalPrice createdAt")
-      .lean();
-
-    const recentSales = recentOrders.map((o) => {
-      const name = o.customer?.name || "Guest";
-      const email = o.customer?.email || "";
-      return {
-        initials: initialsFromName(name),
-        name,
-        email,
-        amount: o.totalPrice,
-      };
-    });
-
     const paidBookings = await Booking.find({ paymentStatus: "PAID" })
       .sort({ updatedAt: -1 })
       .select("userId customerName totalPrice paymentStatus status updatedAt createdAt")
@@ -355,8 +327,8 @@ exports.getDashboard = async (req, res) => {
       recentSales: {
         title: "Recent Sales",
         salesThisMonth,
-        subtitle: `You made ${salesThisMonth} sales this month.`,
-        items: recentSales,
+        subtitle: `${buyers.length} buyer(s) · top by total paid`,
+        items: buyers.slice(0, 5),
       },
       payments: {
         total: paymentList.length,
