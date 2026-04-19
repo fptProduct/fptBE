@@ -91,30 +91,6 @@ async function monthlyRevenueForYear(year) {
   }));
 }
 
-async function monthlyTotalRevenue(year) {
-  const start = startOfUtcMonth(year, 0);
-  const end = startOfUtcMonth(year + 1, 0);
-  const rows = await Order.aggregate([
-    {
-      $match: {
-        status: "CONFIRMED",
-        createdAt: { $gte: start, $lt: end },
-      },
-    },
-    {
-      $group: {
-        _id: { $month: "$createdAt" },
-        revenue: { $sum: "$totalPrice" },
-      },
-    },
-  ]);
-  const byMonth = new Map(rows.map((r) => [r._id, r.revenue]));
-  return MONTH_LABELS.map((month, i) => ({
-    month,
-    revenue: byMonth.get(i + 1) || 0,
-  }));
-}
-
 async function getActiveProducts() {
   return Product.find({ isActive: true })
     .sort({ createdAt: -1 })
@@ -255,7 +231,6 @@ exports.getDashboard = async (req, res) => {
     const activeDelta = activeNow - activePrevHour;
 
     const overviewMonths = await monthlyRevenueForYear(year);
-    const revenueByMonth = await monthlyTotalRevenue(year);
     const activeProducts = await getActiveProducts();
     const productRevenueByMonth = await getProductRevenueByMonth(year);
     const buyers = await getProductBuyers();
@@ -314,7 +289,6 @@ exports.getDashboard = async (req, res) => {
         title: "Overview",
         months: overviewMonths,
       },
-      revenueByMonth,
       activeProducts: {
         total: activeProducts.length,
         items: activeProducts,
