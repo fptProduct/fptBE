@@ -45,12 +45,15 @@ function getPayOSRedirectUrls(req) {
   const frontendBaseUrl = normalizeBaseUrl(process.env.FRONTEND_URL);
   const resolvedBaseUrl =
     clientBaseUrl || frontendBaseUrl || normalizeBaseUrl(process.env.PAYOS_BASE_URL);
+  const backendBaseUrl =
+    normalizeBaseUrl(process.env.BACKEND_URL) ||
+    normalizeBaseUrl(`${req.protocol}://${req.get("host")}`);
 
-  const returnUrlFromBase = resolvedBaseUrl
-    ? `${resolvedBaseUrl}/payment-success`
+  const returnUrlFromBase = backendBaseUrl
+    ? `${backendBaseUrl}/api/payment/payos/return${resolvedBaseUrl ? `?redirect=${encodeURIComponent(`${resolvedBaseUrl}/payment-success`)}` : ""}`
     : "";
-  const cancelUrlFromBase = resolvedBaseUrl
-    ? `${resolvedBaseUrl}/payment-cancel`
+  const cancelUrlFromBase = backendBaseUrl
+    ? `${backendBaseUrl}/api/payment/payos/cancel${resolvedBaseUrl ? `?redirect=${encodeURIComponent(`${resolvedBaseUrl}/payment-cancel`)}` : ""}`
     : "";
 
   const returnUrl = returnUrlFromBase || process.env.PAYOS_RETURN_URL || "";
@@ -68,6 +71,42 @@ function getPayOSRedirectUrls(req) {
     returnUrl,
     cancelUrl,
   };
+}
+
+function isPayOSSuccess(data = {}) {
+  return (
+    data?.success === true ||
+    data?.success === "true" ||
+    data?.status === "PAID" ||
+    data?.status === "paid" ||
+    data?.code === "00" ||
+    data?.code === 0
+  );
+}
+
+async function applyPayOSPaymentByOrderCode(orderCode, isSuccess, amountCandidate = 0) {
+  if (!Number.isFinite(orderCode)) return null;
+
+  const booking = await Booking.findOne({ payosOrderCode: orderCode });
+  if (booking) {
+    booking.paymentStatus = isSuccess ? "PAID" : "UNPAID";
+    booking.status = isSuccess ? "CONFIRMED" : booking.status;
+    if (isSuccess && (!booking.totalPrice || booking.totalPrice <= 0)) {
+      booking.totalPrice = Math.round(Number(amountCandidate || 0));
+    }
+    await booking.save();
+    return { source: "booking", id: booking._id };
+  }
+
+  const cartPayment = await CartPayment.findOne({ orderCode });
+  if (cartPayment) {
+    cartPayment.paymentStatus = isSuccess ? "PAID" : "FAILED";
+    cartPayment.paidAt = isSuccess ? new Date() : null;
+    await cartPayment.save();
+    return { source: "cart", id: cartPayment._id };
+  }
+
+  return null;
 }
 
 function buildMomoSignature(secretKey, params) {
@@ -531,23 +570,20 @@ exports.payOSWebhook = async (req, res) => {
       : webhookData;
     const orderCodeRaw = payload?.orderCode ?? webhookData?.orderCode;
     const orderCode = Number(orderCodeRaw);
-    const isSuccess =
-      payload?.success === true ||
-      payload?.success === "true" ||
-      webhookData?.success === true ||
-      webhookData?.success === "true" ||
-      payload?.code === "00" ||
-      payload?.code === 0 ||
-      webhookData?.code === "00" ||
-      webhookData?.code === 0;
+    const isSuccess = isPayOSSuccess(payload) || isPayOSSuccess(webhookData);
 
     let paymentSummary = null;
     if (Number.isFinite(orderCode)) {
-      const booking = await Booking.findOne({ payosOrderCode: orderCode });
-      if (booking) {
-        booking.paymentStatus = isSuccess ? "PAID" : "UNPAID";
-        booking.status = isSuccess ? "CONFIRMED" : "REJECTED";
-        await booking.save();
+      const handled = await applyPayOSPaymentByOrderCode(
+        orderCode,
+        isSuccess,
+        payload?.amount || webhookData?.amount || 0
+      );
+      if (handled?.source === "booking") {
+        const booking = await Booking.findById(handled.id);
+        if (!booking) {
+          return res.status(200).json({ error: 0, message: "Ok", data: webhookData, paymentSummary: null });
+        }
 
         if (isSuccess) {
           const user = booking.userId
@@ -566,29 +602,23 @@ exports.payOSWebhook = async (req, res) => {
             source: "booking",
           };
         }
-      } else {
-        const cartPayment = await CartPayment.findOne({ orderCode });
-        if (cartPayment) {
-          cartPayment.paymentStatus = isSuccess ? "PAID" : "FAILED";
-          cartPayment.paidAt = isSuccess ? new Date() : null;
-          await cartPayment.save();
-
-          if (isSuccess) {
-            const user = await User.findById(cartPayment.userId)
-              .select("name image")
-              .lean();
-            paymentSummary = {
-              userId: cartPayment.userId || null,
-              userName: user?.name || "",
-              userImage: user?.image || "",
-              paidAmount: Math.round(
-                Number(cartPayment.paidAmount || payload?.amount || webhookData?.amount || 0)
-              ),
-              paymentStatus: cartPayment.paymentStatus,
-              cartPaymentId: cartPayment._id,
-              source: "cart",
-            };
-          }
+      } else if (handled?.source === "cart") {
+        const cartPayment = await CartPayment.findById(handled.id);
+        if (cartPayment && isSuccess) {
+          const user = await User.findById(cartPayment.userId)
+            .select("name image")
+            .lean();
+          paymentSummary = {
+            userId: cartPayment.userId || null,
+            userName: user?.name || "",
+            userImage: user?.image || "",
+            paidAmount: Math.round(
+              Number(cartPayment.paidAmount || payload?.amount || webhookData?.amount || 0)
+            ),
+            paymentStatus: cartPayment.paymentStatus,
+            cartPaymentId: cartPayment._id,
+            source: "cart",
+          };
         }
       }
     }
@@ -606,4 +636,37 @@ exports.payOSWebhook = async (req, res) => {
       message: "Xác thực webhook thất bại",
     });
   }
+};
+
+exports.payOSReturn = async (req, res) => {
+  try {
+    const orderCode = Number(req.query.orderCode);
+    const isSuccess = isPayOSSuccess(req.query);
+    const amount = Number(req.query.amount || 0);
+
+    if (Number.isFinite(orderCode)) {
+      await applyPayOSPaymentByOrderCode(orderCode, isSuccess, amount);
+    }
+
+    const redirectUrl = req.query.redirect
+      ? `${req.query.redirect}${req.query.redirect.includes("?") ? "&" : "?"}${new URLSearchParams(req.query).toString()}`
+      : "";
+
+    if (redirectUrl) {
+      return res.redirect(302, redirectUrl);
+    }
+    return res.status(200).json({ message: "Payment return processed", orderCode, isSuccess });
+  } catch (error) {
+    return res.status(500).json({ message: error.message || "Failed to process payment return" });
+  }
+};
+
+exports.payOSCancel = async (req, res) => {
+  const redirectUrl = req.query.redirect
+    ? `${req.query.redirect}${req.query.redirect.includes("?") ? "&" : "?"}${new URLSearchParams(req.query).toString()}`
+    : "";
+  if (redirectUrl) {
+    return res.redirect(302, redirectUrl);
+  }
+  return res.status(200).json({ message: "Payment canceled" });
 };

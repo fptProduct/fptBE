@@ -6,6 +6,8 @@ const {
   createPayOSPaymentFromCart,
   createPayOSPaymentFromBooking,
   payOSWebhook,
+  payOSReturn,
+  payOSCancel,
 } = require("../controllers/patmentController");
 const authMiddleware = require("../middleware/authMiddleware");
 
@@ -26,5 +28,7 @@ router.post(
 );
 router.post("/payos/create-from-booking", createPayOSPaymentFromBooking);
 router.post("/payos/webhook", payOSWebhook);
+router.get("/payos/return", payOSReturn);
+router.get("/payos/cancel", payOSCancel);
 
 module.exports = router;
