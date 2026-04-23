@@ -17,6 +17,7 @@ const payos = new PayOS({
 });
 
 const DEPOSIT_RATIO = 0.5;
+const DEFAULT_FRONTEND_URL = "https://fe-lovat-nine.vercel.app";
 
 function normalizeBaseUrl(url) {
   if (!url) return "";
@@ -43,8 +44,12 @@ function getClientBaseUrl(req) {
 function getPayOSRedirectUrls(req) {
   const clientBaseUrl = getClientBaseUrl(req);
   const frontendBaseUrl = normalizeBaseUrl(process.env.FRONTEND_URL);
+  const defaultFrontendBaseUrl = normalizeBaseUrl(DEFAULT_FRONTEND_URL);
   const resolvedBaseUrl =
-    clientBaseUrl || frontendBaseUrl || normalizeBaseUrl(process.env.PAYOS_BASE_URL);
+    frontendBaseUrl ||
+    defaultFrontendBaseUrl ||
+    clientBaseUrl ||
+    normalizeBaseUrl(process.env.PAYOS_BASE_URL);
   const backendBaseUrl =
     normalizeBaseUrl(process.env.BACKEND_URL) ||
     normalizeBaseUrl(`${req.protocol}://${req.get("host")}`);
